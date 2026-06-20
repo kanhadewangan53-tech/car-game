@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Car Race Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1818;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: #F1EFE8;
+    }
+    h1 { font-size: 22px; font-weight: 500; margin-bottom: 12px; letter-spacing: 2px; color: #AFA9EC; }
+    #hud {
+      display: flex;
+      gap: 32px;
+      font-size: 14px;
+      color: #888780;
+      margin-bottom: 10px;
+    }
+    #hud span { font-weight: 600; color: #F1EFE8; }
+    canvas {
+      border-radius: 12px;
+      border: 1px solid #3C3434;
+      display: block;
+    }
+    #start-btn {
+      margin-top: 14px;
+      padding: 10px 32px;
+      border-radius: 8px;
+      border: 1px solid #5F5E5A;
+      background: transparent;
+      color: #F1EFE8;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #start-btn:hover { background: #2C2C2A; }
+    #info { margin-top: 8px; font-size: 12px; color: #5F5E5A; }
+  </style>
+</head>
+<body>
+
+  <h1>🚗 CAR RACE</h1>
+  <div id="hud">
+    <div>Score: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+    <div>Speed: <span id="speed">1x</span></div>
+  </div>
+
+  <canvas id="canvas" width="340" height="520"></canvas>
+  <button id="start-btn">▶ Start Game</button>
+  <div id="info">Arrow Keys / WASD to steer &nbsp;|&nbsp; Mobile: swipe on canvas</div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const ROAD_L = 60, ROAD_R = W - 60;
+    const LANE_W = (ROAD_R - ROAD_L) / 3;
+
+    let state = 'idle';
+    let score = 0, best = 0, frame = 0;
+    let carX, carY, carW = 28, carH = 44;
+    let obstacles = [], marks = [];
+    let speed = 3, keys = {};
+    let animId;
+
+    function initGame() {
+      carX = W / 2 - carW / 2;
+      carY = H - 100;
+      obstacles = [];
+      marks = [];
+      score = 0; frame = 0; speed = 3;
+      for (let y = 0; y < H; y += 80) marks.push({ y });
+      document.getElementById('score').textContent = '0';
+      document.getElementById('speed').textContent = '1x';
+    }
+
+    function spawnObstacle() {
+      const lane = Math.floor(Math.random() * 3);
+      const x = ROAD_L + lane * LANE_W + LANE_W / 2 - 14;
+      const colors = ['#D85A30', '#185FA5', '#3B6D11', '#885CAB'];
+      obstacles.push({ x, y: -50, w: 28, h: 44, color: colors[Math.floor(Math.random() * colors.length)] });
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = '#2C2C2A';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#3C3434';
+      ctx.fillRect(ROAD_L, 0, ROAD_R - ROAD_L, H);
+
+      ctx.strokeStyle = '#888780';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(ROAD_L, 0); ctx.lineTo(ROAD_L, H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ROAD_R, 0); ctx.lineTo(ROAD_R, H); ctx.stroke();
+
+      ctx.setLineDash([30, 20]);
+      ctx.strokeStyle = '#5F5E5A';
+      ctx.lineWidth = 1.5;
+      for (let lane = 1; lane < 3; lane++) {
+        const lx = ROAD_L + lane * LANE_W;
+        ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, H); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#B4B2A9';
+      marks.forEach(m => {
+        ctx.fillRect(ROAD_L + 4, m.y, 8, 18);
+        ctx.fillRect(ROAD_R - 12, m.y, 8, 18);
+      });
+    }
+
+    function drawCar(x, y, color, accent) {
+      const r = 5;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, carW, carH, r);
+      ctx.fill();
+
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.roundRect(x + 4, y + 8, carW - 8, 18, 3);
+      ctx.fill();
+
+      ctx.fillStyle = '#FFD166';
+      ctx.fillRect(x + 2, y, 5, 5);
+      ctx.fillRect(x + carW - 7, y, 5, 5);
+
+      ctx.fillStyle = '#E24B4A';
+      ctx.fillRect(x + 2, y + carH - 5, 5, 5);
+      ctx.fillRect(x + carW - 7, y + carH - 5, 5, 5);
+
+      ctx.fillStyle = '#1D1D1B';
+      ctx.fillRect(x - 4, y + 6, 5, 10);
+      ctx.fillRect(x + carW - 1, y + 6, 5, 10);
+      ctx.fillRect(x - 4, y + carH - 16, 5, 10);
+      ctx.fillRect(x + carW - 1, y + carH - 16, 5, 10);
+    }
+
+    function drawOverlay(txt, sub) {
+      ctx.fillStyle = 'rgba(26,24,24,0.82)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#F1EFE8';
+      ctx.font = '500 28px Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(txt, W / 2, H / 2 - 20);
+      ctx.font = '400 15px Segoe UI, sans-serif';
+      ctx.fillStyle = '#B4B2A9';
+      ctx.fillText(sub, W / 2, H / 2 + 16);
+      ctx.textAlign = 'left';
+    }
+
+    function checkCollision(a, b) {
+      return a.x < b.x + b.w && a.x + carW > b.x && a.y < b.y + b.h && a.y + carH > b.y;
+    }
+
+    let lastSpawn = 0;
+
+    function gameLoop() {
+      if (state !== 'playing') return;
+      frame++;
+      speed = 3 + Math.floor(score / 300) * 0.6;
+      if (speed > 9) speed = 9;
+
+      const spawnInterval = Math.max(40, 80 - Math.floor(score / 200) * 5);
+      if (frame - lastSpawn > spawnInterval) { spawnObstacle(); lastSpawn = frame; }
+
+      const move = 4;
+      if ((keys['ArrowLeft'] || keys['a'] || keys['A']) && carX > ROAD_L + 2) carX -= move;
+      if ((keys['ArrowRight'] || keys['d'] || keys['D']) && carX + carW < ROAD_R - 2) carX += move;
+
+      marks.forEach(m => { m.y += speed; if (m.y > H) m.y -= H; });
+      obstacles.forEach(o => o.y += speed);
+      obstacles = obstacles.filter(o => o.y < H + 60);
+
+      const player = { x: carX + 3, y: carY + 4, w: carW - 6, h: carH - 8 };
+      for (const o of obstacles) {
+        const ob = { x: o.x + 3, y: o.y + 4, w: o.w - 6, h: o.h - 8 };
+        if (checkCollision(player, ob)) { crash(); return; }
+      }
+
+      score++;
+      document.getElementById('score').textContent = score;
+      document.getElementById('speed').textContent = speed.toFixed(1) + 'x';
+
+      drawRoad();
+      obstacles.forEach(o => drawCar(o.x, o.y, o.color, '#B4B2A9'));
+      drawCar(carX, carY, '#534AB7', '#AFA9EC');
+
+      animId = requestAnimationFrame(gameLoop);
+    }
+
+    function crash() {
+      state = 'dead';
+      if (animId) cancelAnimationFrame(animId);
+      if (score > best) { best = score; document.getElementById('best').textContent = best; }
+      drawRoad();
+      obstacles.forEach(o => drawCar(o.x, o.y, o.color, '#B4B2A9'));
+      drawCar(carX, carY, '#A32D2D', '#F09595');
+      drawOverlay('💥 Crashed!', 'Press Space or tap Retry');
+      document.getElementById('start-btn').textContent = '↩ Retry';
+    }
+
+    function startGame() {
+      if (animId) cancelAnimationFrame(animId);
+      initGame();
+      state = 'playing';
+      lastSpawn = 0;
+      document.getElementById('start-btn').textContent = '↩ Restart';
+      animId = requestAnimationFrame(gameLoop);
+    }
+
+    document.getElementById('start-btn').addEventListener('click', startGame);
+
+    document.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (state === 'idle' || state === 'dead') startGame();
+      }
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
+    });
+    document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    let touchStartX = 0;
+    canvas.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; e.preventDefault(); }, { passive: false });
+    canvas.addEventListener('touchmove', e => {
+      const dx = e.touches[0].clientX - touchStartX;
+      if (dx < -10) { keys['ArrowLeft'] = true; keys['ArrowRight'] = false; }
+      else if (dx > 10) { keys['ArrowRight'] = true; keys['ArrowLeft'] = false; }
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { keys['ArrowLeft'] = false; keys['ArrowRight'] = false; });
+
+    // Initial screen
+    drawRoad();
+    drawCar(W / 2 - carW / 2, H - 100, '#534AB7', '#AFA9EC');
+    drawOverlay('🚗 Car Race', 'Press Space or tap Start');
+  </script>
+</body>
+</html>
